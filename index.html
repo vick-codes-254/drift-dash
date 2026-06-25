@@ -2,40 +2,106 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Drift Dash</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<div class="game-root" id="root">
+  <canvas id="game"></canvas>
+
+  <!-- ===== top HUD ===== -->
   <div class="hud">
     <div class="stat"><span>SCORE</span><b id="score">0</b></div>
     <div class="stat"><span>BEST</span><b id="best">0</b></div>
-    <div class="stat speed"><span>SPEED</span><b id="speed">0</b></div>
+    <div class="spacer"></div>
+    <div class="stat speed"><b id="speed">0</b><span>KM/H</span></div>
+    <button class="iconbtn" id="muteBtn" title="Mute">🔊</button>
+    <button class="iconbtn" id="pauseBtn" title="Pause">⏸</button>
   </div>
 
-  <!-- live drift banner -->
+  <!-- ===== live drift banner ===== -->
   <div class="drift" id="drift">
     <span id="drift-pts">0</span>
     <em id="drift-mult">x1.0</em>
   </div>
 
-  <div class="stage">
-    <canvas id="game"></canvas>
-    <div class="overlay" id="overlay">
-      <h1>DRIFT&nbsp;DASH</h1>
-      <p class="tag">Slide around the cones. Hold a drift to stack a multiplier &mdash; bank it before you crash.</p>
-      <div class="keys">
-        <span><b>W</b>/<b>↑</b> gas</span>
-        <span><b>S</b>/<b>↓</b> brake</span>
-        <span><b>A D</b>/<b>← →</b> steer</span>
-        <span><b>Space</b> handbrake</span>
-        <span><b>R</b> reset car</span>
-      </div>
-      <button id="start">START&nbsp;ENGINE</button>
+  <!-- ===== nitro meter ===== -->
+  <div class="meters" id="meters">
+    <div class="meter">
+      <label>NITRO <small id="boost-rdy"></small></label>
+      <div class="bar"><i id="boost-fill"></i></div>
     </div>
   </div>
-  <p class="foot">Handbrake + steer into a corner to break traction. The wider &amp; faster the slide, the more points.</p>
 
-  <script src="script.js"></script>
+  <!-- ===== touch controls ===== -->
+  <div class="touch" id="touch" hidden>
+    <div class="pad steer">
+      <button class="tbtn" data-k="a">◀</button>
+      <button class="tbtn" data-k="d">▶</button>
+    </div>
+    <div class="pad act">
+      <button class="tbtn nos" data-k="shift">N2O</button>
+      <button class="tbtn brk" data-k="s">BRK</button>
+      <button class="tbtn eb"  data-k=" ">E‑BRAKE</button>
+      <button class="tbtn gas" data-k="w">GAS</button>
+    </div>
+  </div>
+
+  <!-- ===== main menu / garage ===== -->
+  <div class="screen menu" id="menu">
+    <div class="m-top">
+      <h1>DRIFT&nbsp;DASH</h1>
+      <p class="tag">Slide the cones, stack a multiplier, bank it before you crash.</p>
+    </div>
+
+    <div class="m-bottom">
+      <div class="garage">
+        <button class="arrow" id="car-prev" aria-label="Previous car">‹</button>
+        <div class="car-card">
+          <h2 id="car-name">Comet</h2>
+          <p class="car-blurb" id="car-blurb"></p>
+          <div class="stats" id="stats"></div>
+          <div class="swatches" id="swatches"></div>
+        </div>
+        <button class="arrow" id="car-next" aria-label="Next car">›</button>
+      </div>
+      <button class="primary" id="start">START&nbsp;ENGINE</button>
+      <p class="hint">
+        <b>W</b>/<b>↑</b> gas · <b>S</b>/<b>↓</b> brake · <b>A&nbsp;D</b>/<b>←&nbsp;→</b> steer ·
+        <b>Space</b> handbrake · <b>Shift</b> nitro · <b>P</b> pause
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== countdown ===== -->
+  <div class="countdown" id="countdown"></div>
+
+  <!-- ===== pause ===== -->
+  <div class="screen pause" id="pause" hidden>
+    <div class="panel">
+      <h2>PAUSED</h2>
+      <div class="run-stats" id="run-stats"></div>
+
+      <div class="settings">
+        <label class="set-row">
+          <span>Volume</span>
+          <input id="vol" type="range" min="0" max="100" value="70" />
+        </label>
+        <label class="set-row check">
+          <input id="sfx" type="checkbox" checked /> <span>Sound effects</span>
+        </label>
+      </div>
+
+      <div class="btn-row">
+        <button class="primary" id="resume">Resume</button>
+        <button id="restart">Restart</button>
+        <button id="to-menu">Garage</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
 </body>
 </html>
