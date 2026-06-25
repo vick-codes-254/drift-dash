@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drift Dash</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="hud">
+    <div class="stat"><span>SCORE</span><b id="score">0</b></div>
+    <div class="stat"><span>BEST</span><b id="best">0</b></div>
+    <div class="stat speed"><span>SPEED</span><b id="speed">0</b></div>
+  </div>
+
+  <!-- live drift banner -->
+  <div class="drift" id="drift">
+    <span id="drift-pts">0</span>
+    <em id="drift-mult">x1.0</em>
+  </div>
+
+  <div class="stage">
+    <canvas id="game"></canvas>
+    <div class="overlay" id="overlay">
+      <h1>DRIFT&nbsp;DASH</h1>
+      <p class="tag">Slide around the cones. Hold a drift to stack a multiplier &mdash; bank it before you crash.</p>
+      <div class="keys">
+        <span><b>W</b>/<b>↑</b> gas</span>
+        <span><b>S</b>/<b>↓</b> brake</span>
+        <span><b>A D</b>/<b>← →</b> steer</span>
+        <span><b>Space</b> handbrake</span>
+        <span><b>R</b> reset car</span>
+      </div>
+      <button id="start">START&nbsp;ENGINE</button>
+    </div>
+  </div>
+  <p class="foot">Handbrake + steer into a corner to break traction. The wider &amp; faster the slide, the more points.</p>
+
+  <script src="script.js"></script>
+</body>
+</html>
