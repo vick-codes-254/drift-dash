@@ -26,6 +26,12 @@
     <em id="drift-mult">x1.0</em>
   </div>
 
+  <!-- ===== time attack HUD ===== -->
+  <div class="ta-hud" id="ta-hud" hidden>
+    <div class="ta-cell"><span>TIME</span><b id="ta-time">20.0</b></div>
+    <div class="ta-cell"><span>GATES</span><b id="ta-gates">0</b></div>
+  </div>
+
   <!-- ===== nitro meter ===== -->
   <div class="meters" id="meters">
     <div class="meter">
@@ -56,6 +62,11 @@
     </div>
 
     <div class="m-bottom">
+      <div class="mode-select" id="mode-select">
+        <button class="mode-btn" data-mode="free">FREE DRIFT</button>
+        <button class="mode-btn" data-mode="ta">TIME ATTACK</button>
+      </div>
+      <p class="mode-best" id="mode-best"></p>
       <div class="garage">
         <button class="arrow" id="car-prev" aria-label="Previous car">‹</button>
         <div class="car-card">
@@ -97,6 +108,18 @@
         <button class="primary" id="resume">Resume</button>
         <button id="restart">Restart</button>
         <button id="to-menu">Garage</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== time attack result ===== -->
+  <div class="screen result" id="result" hidden>
+    <div class="panel">
+      <h2>TIME UP</h2>
+      <div class="run-stats" id="result-stats"></div>
+      <div class="btn-row">
+        <button class="primary" id="result-retry">Retry</button>
+        <button id="result-menu">Garage</button>
       </div>
     </div>
   </div>

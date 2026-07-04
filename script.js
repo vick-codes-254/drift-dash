@@ -1,7 +1,9 @@
+/* drift-dash v2.1.0 */
 /* ============================================================================
    DRIFT DASH — a top-down arcade drifter
    Momentum drift physics · nitro · near-miss style scoring · procedural audio
-   · garage with selectable cars & paint · dynamic camera. No dependencies.
+   · garage with selectable cars & paint · dynamic camera · Free Drift and
+   Time Attack modes with a recorded ghost car. No dependencies.
    ========================================================================== */
 
 "use strict";
@@ -32,11 +34,14 @@ window.addEventListener("resize", resize);
 const SAVE = JSON.parse(localStorage.getItem("driftDash") || "{}");
 function persist() { localStorage.setItem("driftDash", JSON.stringify(SAVE)); }
 SAVE.best = SAVE.best || 0;
+SAVE.bestTA = SAVE.bestTA || 0;
 SAVE.volume = SAVE.volume == null ? 0.7 : SAVE.volume;
 SAVE.sfx = SAVE.sfx == null ? true : SAVE.sfx;
 SAVE.muted = SAVE.muted || false;
 SAVE.car = SAVE.car || 0;
 SAVE.color = SAVE.color || 0;
+SAVE.mode = SAVE.mode === "ta" ? "ta" : "free";
+SAVE.ghost = SAVE.ghost || null;
 
 /* ----------------------------------------------------------------------------
    Cars + paint
@@ -51,12 +56,16 @@ const CARS = [
   { name: "Boulder", blurb: "Heavy & planted. Hard to spin, slower to wind up.",
     accel: 0.225, maxSpeed: 9.6, turn: 0.046, retain: 0.74,
     bars: { Power: 54, Speed: 50, Grip: 92, Agility: 54 } },
+  { name: "Wisp", blurb: "Featherweight scalpel. Darts into gates, twitchy at speed.",
+    accel: 0.335, maxSpeed: 11.8, turn: 0.066, retain: 0.83,
+    bars: { Power: 82, Speed: 82, Grip: 48, Agility: 98 } },
 ];
 const PAINTS = [
   ["#ff5d7a", "#ff2d55"], ["#54e6ff", "#10b3e8"], ["#9bff5a", "#4fd11a"],
   ["#ffd24d", "#ff9e2c"], ["#c08cff", "#8a4dff"], ["#ff8a3c", "#ff5e1a"],
-  ["#f4f7ff", "#c4cee0"],
+  ["#f4f7ff", "#c4cee0"], ["#2ce6b0", "#12a67f"],
 ];
+const GHOST_PAINT = ["#9fb4d8", "#5f76a0"];
 
 /* ----------------------------------------------------------------------------
    Audio — fully procedural (engine, screech, impact, nitro, ui)
@@ -159,6 +168,13 @@ const Audio = {
       o.frequency.setValueAtTime(440, t); o.frequency.exponentialRampToValueAtTime(880, t + 0.18);
       g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
       o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.26);
+    } else if (type === "gate") {
+      // bright two-tone chime for clearing a checkpoint
+      const o = ac.createOscillator(); o.type = "triangle";
+      const g = ac.createGain();
+      o.frequency.setValueAtTime(660, t); o.frequency.setValueAtTime(990, t + 0.09);
+      g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.31);
     }
   },
 };
@@ -178,45 +194,35 @@ const E = {
   muteBtn: $("muteBtn"), pauseBtn: $("pauseBtn"),
   vol: $("vol"), sfx: $("sfx"), runStats: $("run-stats"),
   touch: $("touch"), meters: $("meters"),
+  taHud: $("ta-hud"), taTime: $("ta-time"), taGates: $("ta-gates"),
+  modeBest: $("mode-best"),
+  result: $("result"), resultStats: $("result-stats"),
+  resultRetry: $("result-retry"), resultMenu: $("result-menu"),
 };
-E.best.textContent = Math.floor(SAVE.best);
 
 /* ----------------------------------------------------------------------------
-   Input
+   Time Attack tuning
 ---------------------------------------------------------------------------- */
-const keys = {};
-window.addEventListener("keydown", (e) => {
-  const k = e.key.toLowerCase();
-  if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
-  if (k === "p" || k === "escape") { togglePause(); return; }
-  keys[k] = true;
-  if (k === "r" && state === "playing") resetCar();
-});
-window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
-window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
-
-// touch buttons map onto the same key state
-if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
-  E.touch.hidden = false;
-  document.querySelectorAll(".tbtn").forEach((btn) => {
-    const k = btn.dataset.k;
-    const on = (e) => { e.preventDefault(); keys[k] = true; };
-    const off = (e) => { e.preventDefault(); keys[k] = false; };
-    btn.addEventListener("touchstart", on, { passive: false });
-    btn.addEventListener("touchend", off, { passive: false });
-    btn.addEventListener("touchcancel", off, { passive: false });
-  });
-}
+const TA_START = 20;    // seconds on the clock at the start
+const TA_BONUS = 3.6;   // seconds added per gate cleared
+const GATE_R = 64;      // pass radius
+const GATE_W = 54;      // visual half-width of a gate
+const GH_DT = 0.06;     // ghost sample interval (seconds)
+const GH_MAX = 9000;    // max recorded values (3000 samples)
 
 /* ----------------------------------------------------------------------------
    Game state
 ---------------------------------------------------------------------------- */
-let state = "menu";   // menu | countdown | playing | paused
-let car, cones, smoke, marks, pops, cam;
+let state = "menu";   // menu | countdown | playing | paused | over
+let mode = SAVE.mode; // free | ta
+let car, cones, smoke, marks, pops, cam, gates, tires;
 let score, driftPending, driftMult, drifting, driftCool;
 let boost, boosting, wreckFlash, shake, comboHeat;
 let countdownT = 0, menuSpin = 0;
+let taTime = TA_START, gateIdx = 0, gatesPassed = 0;
+let ghostRec, ghRecTimer, ghT, ghostPlay;
 let run = { time: 0, longest: 0, curDrift: 0, bestCombo: 0 };
+let asphaltPat = null;
 
 function curCar() { return CARS[SAVE.car]; }
 function curPaint() { return PAINTS[SAVE.color]; }
@@ -249,20 +255,62 @@ function makeCones() {
 }
 function cone(x, y) { return { x, y, r: 13, hit: 0, cool: 0 }; }
 
+// Time Attack: a ring of ordered gates forming a continuous circuit
+function makeGates() {
+  gates = [];
+  const cx = WORLD.w / 2, cy = WORLD.h / 2;
+  const rx = 780, ry = 560, N = 12;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+    gates.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry, ang: a + Math.PI / 2 });
+  }
+}
+
+// decorative tire-stack barriers at the four corners (no collision)
+function makeTires() {
+  tires = [];
+  const inset = 200;
+  const spots = [
+    [inset, inset], [WORLD.w - inset, inset],
+    [inset, WORLD.h - inset], [WORLD.w - inset, WORLD.h - inset],
+  ];
+  for (const [x, y] of spots) {
+    for (let i = 0; i < 5; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * 26;
+      tires.push({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, r: 12 + Math.random() * 4 });
+    }
+  }
+}
+
 function init() {
+  mode = SAVE.mode === "ta" ? "ta" : "free";
   resetCar();
   makeCones();
+  makeTires();
+  gates = [];
+  if (mode === "ta") makeGates();
   smoke = []; marks = []; pops = [];
   cam = { x: car.x, y: car.y, zoom: 1 };
   score = 0; driftPending = 0; driftMult = 1; drifting = false; driftCool = 0;
   boost = 0; boosting = false; wreckFlash = 0; shake = 0; comboHeat = 0;
+  taTime = TA_START; gateIdx = 0; gatesPassed = 0;
+  ghostRec = []; ghRecTimer = 0; ghT = 0;
+  ghostPlay = (mode === "ta" && SAVE.ghost && SAVE.ghost.s && SAVE.ghost.s.length >= 6) ? SAVE.ghost : null;
   run = { time: 0, longest: 0, curDrift: 0, bestCombo: 0 };
   updateHud();
+  updateTaHud();
 }
 
 function updateHud() {
   E.score.textContent = Math.floor(score);
-  E.best.textContent = Math.floor(SAVE.best);
+  E.best.textContent = Math.floor(mode === "ta" ? SAVE.bestTA : SAVE.best);
+}
+
+function updateTaHud() {
+  if (mode !== "ta") return;
+  E.taTime.textContent = Math.max(0, taTime).toFixed(1);
+  E.taGates.textContent = gatesPassed;
+  E.taHud.classList.toggle("low", taTime <= 5);
 }
 
 /* ----------------------------------------------------------------------------
@@ -274,7 +322,7 @@ function bankDrift(wrecked = false) {
       wreckFlash = 1;
     } else {
       score += driftPending * driftMult;
-      if (score > SAVE.best) { SAVE.best = score; persist(); }
+      if (mode === "free" && score > SAVE.best) { SAVE.best = score; persist(); }
       Audio.blast("bank");
       updateHud();
     }
@@ -403,8 +451,34 @@ function update(dt) {
     }
   }
 
+  /* ---- Time Attack: clock, gates, ghost recording ---- */
+  if (mode === "ta") {
+    taTime -= dt;
+    ghT += dt;
+    ghRecTimer += dt;
+    if (ghRecTimer >= GH_DT) {
+      ghRecTimer -= GH_DT;
+      if (ghostRec.length < GH_MAX) ghostRec.push(car.x, car.y, car.angle);
+    }
+    const g = gates[gateIdx % gates.length];
+    if (g && Math.hypot(car.x - g.x, car.y - g.y) < GATE_R) {
+      gateIdx++; gatesPassed++;
+      const pts = 300 + Math.round(speed * 10);
+      score += pts;
+      taTime += TA_BONUS;
+      boost = Math.min(100, boost + 14);
+      shake = Math.max(shake, 5);
+      sparkBurst(g.x, g.y, 14, 110);
+      popText(g.x, g.y - 30, "GATE +" + pts, "#9bff5a");
+      Audio.blast("gate");
+      updateHud();
+    }
+    updateTaHud();
+    if (taTime <= 0) { taTime = 0; endTimeAttack(); return; }
+  }
+
   // particles
-  for (const p of smoke) { p.x += p.vx * ds; p.y += p.vy * ds; p.vx *= 0.94; p.vy *= 0.94; p.life -= dt * 1.5; p.r += dt * 24; }
+  for (const p of smoke) { p.x += p.vx * ds; p.y += p.vy * ds; p.vx *= 0.94; p.vy *= 0.94; p.life -= dt * (p.spark ? 2.6 : 1.5); p.r += dt * (p.spark ? 6 : 24); }
   smoke = smoke.filter((p) => p.life > 0);
   for (const k of marks) k.life -= dt * 0.16;
   marks = marks.filter((k) => k.life > 0);
@@ -457,6 +531,14 @@ function burst(x, y, n) {
     const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 3;
     smoke.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.7, r: 4, hue: 30, sat: 90 });
   }
+  sparkBurst(x, y, 6, 30);
+}
+function sparkBurst(x, y, n, hue) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 2 + Math.random() * 4;
+    smoke.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.5,
+      r: 2.5, hue: hue + Math.random() * 20, sat: 95, flame: true, spark: true });
+  }
 }
 function emitDrift(rx, ry, speed, slip) {
   const bx = car.x - Math.cos(car.angle) * 16, by = car.y - Math.sin(car.angle) * 16;
@@ -480,8 +562,43 @@ function emitFlame(fx, fy, rx, ry) {
 }
 
 /* ----------------------------------------------------------------------------
+   Ghost playback sampling
+---------------------------------------------------------------------------- */
+function ghostSample(t) {
+  const g = ghostPlay;
+  if (!g) return null;
+  const s = g.s, dts = g.dt || GH_DT, n = s.length / 3;
+  if (n < 2) return null;
+  const idx = t / dts;
+  if (idx >= n - 1) return null; // ghost finished its recorded run
+  const i = Math.floor(idx), f = idx - i;
+  const x = s[i * 3] + (s[(i + 1) * 3] - s[i * 3]) * f;
+  const y = s[i * 3 + 1] + (s[(i + 1) * 3 + 1] - s[i * 3 + 1]) * f;
+  return { x, y, a: s[i * 3 + 2] };
+}
+
+/* ----------------------------------------------------------------------------
    Rendering
 ---------------------------------------------------------------------------- */
+function makeAsphalt() {
+  const t = document.createElement("canvas");
+  t.width = t.height = 96;
+  const c = t.getContext("2d");
+  c.fillStyle = "#13161f"; c.fillRect(0, 0, 96, 96);
+  // fine speckle
+  for (let i = 0; i < 1600; i++) {
+    const light = Math.random() > 0.5;
+    c.fillStyle = `rgba(${light ? "255,255,255" : "0,0,0"},${Math.random() * 0.035})`;
+    c.fillRect(Math.random() * 96, Math.random() * 96, 1, 1);
+  }
+  // a few larger aggregate flecks
+  for (let i = 0; i < 40; i++) {
+    c.fillStyle = `rgba(120,140,170,${0.02 + Math.random() * 0.04})`;
+    c.beginPath(); c.arc(Math.random() * 96, Math.random() * 96, 1 + Math.random() * 2, 0, Math.PI * 2); c.fill();
+  }
+  asphaltPat = ctx.createPattern(t, "repeat");
+}
+
 function draw() {
   ctx.clearRect(0, 0, VIEW.w, VIEW.h);
 
@@ -506,18 +623,26 @@ function draw() {
 }
 
 function drawWorld() {
-  // ground
-  ctx.fillStyle = "#13161f";
+  // asphalt texture
+  ctx.fillStyle = asphaltPat || "#13161f";
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
-  ctx.strokeStyle = "rgba(255,255,255,0.028)";
+
+  // faint alignment grid
+  ctx.strokeStyle = "rgba(255,255,255,0.022)";
   ctx.lineWidth = 1;
   for (let x = 0; x <= WORLD.w; x += 90) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD.h); ctx.stroke(); }
   for (let y = 0; y <= WORLD.h; y += 90) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD.w, y); ctx.stroke(); }
+
+  drawCurbs();
+  drawTires();
 
   // border
   ctx.strokeStyle = "rgba(120,200,255,0.35)";
   ctx.lineWidth = 6;
   ctx.strokeRect(3, 3, WORLD.w - 6, WORLD.h - 6);
+
+  // gates (Time Attack)
+  if (mode === "ta") drawGates();
 
   // skid marks (warmer as combo heats up)
   ctx.lineCap = "round";
@@ -544,6 +669,12 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
+  // ghost car (Time Attack)
+  if (mode === "ta" && ghostPlay) {
+    const gs = ghostSample(ghT);
+    if (gs) { ctx.globalAlpha = 0.32; drawCar(gs.x, gs.y, gs.a, GHOST_PAINT, true); ctx.globalAlpha = 1; }
+  }
+
   drawCar(car.x, car.y, car.angle, curPaint());
 
   // floating score pops
@@ -556,6 +687,65 @@ function drawWorld() {
     ctx.fillText(p.text, p.x, p.y);
   }
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+}
+
+// red/white racing curbs along the inner edge of the arena
+function drawCurbs() {
+  const inset = 12, seg = 54, th = 9;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  let flip = 0;
+  for (let x = 0; x < WORLD.w; x += seg) {
+    ctx.fillStyle = (flip++ % 2) ? "#e23b4e" : "#f4f7ff";
+    const w = Math.min(seg, WORLD.w - x);
+    ctx.fillRect(x, inset, w, th);
+    ctx.fillRect(x, WORLD.h - inset - th, w, th);
+  }
+  flip = 0;
+  for (let y = 0; y < WORLD.h; y += seg) {
+    ctx.fillStyle = (flip++ % 2) ? "#e23b4e" : "#f4f7ff";
+    const h = Math.min(seg, WORLD.h - y);
+    ctx.fillRect(inset, y, th, h);
+    ctx.fillRect(WORLD.w - inset - th, y, th, h);
+  }
+  ctx.restore();
+}
+
+// decorative tire-stack barriers
+function drawTires() {
+  if (!tires) return;
+  for (const t of tires) {
+    ctx.fillStyle = "#0b0d13";
+    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#1b2130";
+    ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 0.62, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#0b0d13";
+    ctx.beginPath(); ctx.arc(t.x, t.y, t.r * 0.3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawGates() {
+  for (let i = 0; i < gates.length; i++) {
+    const g = gates[i];
+    const isNext = (gateIdx % gates.length) === i;
+    const dirx = Math.cos(g.ang), diry = Math.sin(g.ang);
+    const ax = g.x + dirx * GATE_W, ay = g.y + diry * GATE_W;
+    const bx = g.x - dirx * GATE_W, by = g.y - diry * GATE_W;
+    const col = isNext ? "#9bff5a" : "#54e6ff";
+
+    ctx.save();
+    ctx.globalAlpha = isNext ? 0.9 : 0.32;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = isNext ? 5 : 3;
+    if (isNext) { ctx.shadowBlur = 18; ctx.shadowColor = col; }
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    // pylons
+    ctx.fillStyle = col;
+    for (const [px, py] of [[ax, ay], [bx, by]]) {
+      ctx.beginPath(); ctx.arc(px, py, isNext ? 8 : 6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 
 function drawCone(c) {
@@ -571,15 +761,22 @@ function drawCone(c) {
   ctx.restore();
 }
 
-function drawCar(x, y, angle, paint) {
+function drawCar(x, y, angle, paint, ghost) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
   ctx.shadowBlur = 0;
 
   // shadow
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  rr(-19, -10, 40, 22, 6);
+  if (!ghost) {
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    rr(-19, -10, 40, 22, 6);
+  }
+
+  // rear wing
+  ctx.fillStyle = ghost ? "#3a445c" : "#0d1017";
+  rr(-25, -13, 5, 26, 2);
+  ctx.fillRect(-23, -3, 5, 6);
 
   // body
   const g = ctx.createLinearGradient(-22, 0, 24, 0);
@@ -587,17 +784,33 @@ function drawCar(x, y, angle, paint) {
   ctx.fillStyle = g;
   rr(-22, -12, 44, 24, 7);
 
+  // top-edge highlight for a little sheen
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  rr(-18, -11, 34, 4, 3);
+
+  // front splitter
+  ctx.fillStyle = ghost ? "#3a445c" : "#0d1017";
+  ctx.fillRect(20, -11, 4, 22);
+
   // racing stripe
   ctx.fillStyle = "rgba(255,255,255,0.85)";
   ctx.fillRect(-22, -2.5, 44, 5);
 
-  // cockpit
-  ctx.fillStyle = "#10151f";
+  // cockpit glass (tinted gradient)
+  const cg = ctx.createLinearGradient(-3, 0, 9, 0);
+  cg.addColorStop(0, "#1a2333"); cg.addColorStop(1, "#0a0f18");
+  ctx.fillStyle = cg;
   rr(-3, -8.5, 12, 17, 4);
+  ctx.fillStyle = "rgba(120,170,230,0.35)";
+  rr(-1, -7, 4, 14, 2);
 
   // headlights
   ctx.fillStyle = "#fff7d6";
   ctx.fillRect(20, -9, 3, 6); ctx.fillRect(20, 3, 3, 6);
+
+  // tail lights
+  ctx.fillStyle = ghost ? "#5a6478" : "#ff3040";
+  ctx.fillRect(-22, -9, 2, 5); ctx.fillRect(-22, 4, 2, 5);
 
   // wheels
   ctx.fillStyle = "#0a0c12";
@@ -664,12 +877,28 @@ function renderGarage() {
 E.carPrev.addEventListener("click", () => { SAVE.car = (SAVE.car + CARS.length - 1) % CARS.length; persist(); renderGarage(); Audio.blast("ui"); });
 E.carNext.addEventListener("click", () => { SAVE.car = (SAVE.car + 1) % CARS.length; persist(); renderGarage(); Audio.blast("ui"); });
 
+/* ---- mode selector ---- */
+function updateModeUI() {
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === SAVE.mode);
+  });
+  E.modeBest.textContent = SAVE.mode === "ta"
+    ? "Best Time Attack: " + Math.floor(SAVE.bestTA || 0)
+    : "Best drift score: " + Math.floor(SAVE.best || 0);
+}
+document.querySelectorAll(".mode-btn").forEach((b) => {
+  b.addEventListener("click", () => { SAVE.mode = b.dataset.mode; persist(); updateModeUI(); Audio.blast("ui"); });
+});
+
 /* ----------------------------------------------------------------------------
-   Flow: menu → countdown → playing → pause
+   Flow: menu → countdown → playing → pause / over
 ---------------------------------------------------------------------------- */
+function applyModeHud() { E.taHud.hidden = mode !== "ta"; }
+
 function startGame() {
   Audio.init(); Audio.resume(); Audio.blast("ui");
   init();
+  applyModeHud();
   E.menu.classList.add("fade");
   setTimeout(() => { E.menu.hidden = true; E.menu.classList.remove("fade"); }, 300);
   beginCountdown();
@@ -695,6 +924,28 @@ function tickCountdown(dt) {
   }
 }
 
+function endTimeAttack() {
+  bankDrift(false);
+  const finalScore = Math.floor(score);
+  let record = false;
+  if (finalScore > (SAVE.bestTA || 0)) {
+    SAVE.bestTA = finalScore;
+    SAVE.ghost = { dt: GH_DT, s: ghostRec.slice(0, GH_MAX) };
+    record = true;
+  }
+  persist();
+  state = "over";
+  Audio.idle();
+  E.drift.classList.remove("show");
+  E.resultStats.innerHTML = `
+    <div class="rs"><span>Score</span><b>${finalScore}</b></div>
+    <div class="rs"><span>Gates cleared</span><b>${gatesPassed}</b></div>
+    <div class="rs"><span>Best combo</span><b>x${run.bestCombo.toFixed(1)}</b></div>
+    <div class="rs"><span>Best Time Attack</span><b>${Math.floor(SAVE.bestTA)}</b></div>
+    ${record ? '<div class="rs record"><span>NEW BEST</span><b>!</b></div>' : ""}`;
+  E.result.hidden = false;
+}
+
 function togglePause() {
   if (state === "playing") {
     state = "paused";
@@ -703,7 +954,10 @@ function togglePause() {
       <div class="rs"><span>Score</span><b>${Math.floor(score)}</b></div>
       <div class="rs"><span>Best combo</span><b>x${run.bestCombo.toFixed(1)}</b></div>
       <div class="rs"><span>Longest drift</span><b>${run.longest.toFixed(1)}s</b></div>
-      <div class="rs"><span>Time</span><b>${run.time.toFixed(0)}s</b></div>`;
+      ${mode === "ta"
+        ? `<div class="rs"><span>Gates cleared</span><b>${gatesPassed}</b></div>
+           <div class="rs"><span>Time left</span><b>${Math.max(0, taTime).toFixed(1)}s</b></div>`
+        : `<div class="rs"><span>Time</span><b>${run.time.toFixed(0)}s</b></div>`}`;
     E.pause.hidden = false;
   } else if (state === "paused") {
     state = "playing";
@@ -714,13 +968,25 @@ function togglePause() {
 
 E.start.addEventListener("click", startGame);
 E.resume.addEventListener("click", togglePause);
-E.restart.addEventListener("click", () => { E.pause.hidden = true; init(); beginCountdown(); });
+E.restart.addEventListener("click", () => { E.pause.hidden = true; init(); applyModeHud(); beginCountdown(); });
 E.toMenu.addEventListener("click", () => {
   E.pause.hidden = true;
   state = "menu";
   Audio.idle();
   E.menu.hidden = false;
+  E.taHud.hidden = true;
   E.drift.classList.remove("show");
+  updateModeUI();
+});
+E.resultRetry.addEventListener("click", () => { E.result.hidden = true; init(); applyModeHud(); beginCountdown(); });
+E.resultMenu.addEventListener("click", () => {
+  E.result.hidden = true;
+  state = "menu";
+  Audio.idle();
+  E.menu.hidden = false;
+  E.taHud.hidden = true;
+  E.drift.classList.remove("show");
+  updateModeUI();
 });
 
 /* ---- settings ---- */
@@ -737,6 +1003,33 @@ E.muteBtn.addEventListener("click", () => {
 E.pauseBtn.addEventListener("click", togglePause);
 
 /* ----------------------------------------------------------------------------
+   Input
+---------------------------------------------------------------------------- */
+const keys = {};
+window.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
+  if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
+  if (k === "p" || k === "escape") { togglePause(); return; }
+  keys[k] = true;
+  if (k === "r" && state === "playing") resetCar();
+});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+
+// touch buttons map onto the same key state
+if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+  E.touch.hidden = false;
+  document.querySelectorAll(".tbtn").forEach((btn) => {
+    const k = btn.dataset.k;
+    const on = (e) => { e.preventDefault(); keys[k] = true; };
+    const off = (e) => { e.preventDefault(); keys[k] = false; };
+    btn.addEventListener("touchstart", on, { passive: false });
+    btn.addEventListener("touchend", off, { passive: false });
+    btn.addEventListener("touchcancel", off, { passive: false });
+  });
+}
+
+/* ----------------------------------------------------------------------------
    Main loop
 ---------------------------------------------------------------------------- */
 let last = 0;
@@ -748,7 +1041,7 @@ function loop(t) {
   else if (state === "countdown") { tickCountdown(dt); }
   else if (state === "menu") menuSpin += dt * 0.5;
 
-  if (state === "paused") Audio.idle();
+  if (state === "paused" || state === "over") Audio.idle();
   draw();
   requestAnimationFrame(loop);
 }
@@ -757,6 +1050,8 @@ function loop(t) {
    Boot
 ---------------------------------------------------------------------------- */
 resize();
+makeAsphalt();
 init();
 renderGarage();
+updateModeUI();
 requestAnimationFrame(loop);

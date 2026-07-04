@@ -5,13 +5,18 @@
 **A top-down arcade drifter with real momentum physics, procedural audio, and a risk/reward style system.**
 Break traction, thread the cones, stack a multiplier — then bank it before you crash.
 
-![tech](https://img.shields.io/badge/HTML5-Canvas-ffd24d) ![audio](https://img.shields.io/badge/Web%20Audio-procedural-ff8a3c) ![deps](https://img.shields.io/badge/dependencies-none-ff3d6e) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![version](https://img.shields.io/badge/version-2.1.0-blue) ![tech](https://img.shields.io/badge/HTML5-Canvas-ffd24d) ![audio](https://img.shields.io/badge/Web%20Audio-procedural-ff8a3c) ![deps](https://img.shields.io/badge/dependencies-none-ff3d6e) ![license](https://img.shields.io/badge/license-MIT-yellow)
 
 </div>
 
 ---
 
 ## Features
+
+### Game modes
+- **Free Drift** — the endless sandbox: carve the course, thread the cones, stack and bank multipliers for as long as you like
+- **Time Attack** — a checkpoint dash against the clock. You start with a short countdown timer and a circuit of ordered gates; drive through the next lit (green) gate to add time and points, then chase the one after it. Run the clock to zero and it is over. Your best Time Attack score is saved.
+- **Ghost car** — Time Attack records the path, heading, and timing of your best run and replays it as a translucent ghost on every attempt after, so you can race your own personal best line
 
 ### Gameplay
 - **Momentum-based drift physics** — velocity is split into forward + lateral components; the handbrake cuts lateral grip so the rear steps out and the car *slides*
@@ -26,13 +31,14 @@ Break traction, thread the cones, stack a multiplier — then bank it before you
 - Master volume, SFX toggle, and one-tap mute — all saved
 
 ### Garage
-- **3 cars** with genuinely different handling — *Comet* (balanced), *Viper* (loose & fast), *Boulder* (heavy & planted) — shown with live stat bars
-- **7 paint colors**, with a slowly-rotating live preview on the menu
-- Your car, paint, settings, and **best score** persist via `localStorage`
+- **4 cars** with genuinely different handling — *Comet* (balanced), *Viper* (loose & fast), *Boulder* (heavy & planted), *Wisp* (featherweight, razor-sharp turn-in) — shown with live stat bars
+- **8 paint colors**, with a slowly-rotating live preview on the menu
+- Your car, paint, mode, settings, and **best scores** (Free Drift and Time Attack) persist via `localStorage`
 
 ### Game feel
 - **Dynamic camera** — follows the car, looks ahead in the direction of travel, and zooms out at speed / during nitro
-- Heat-tinted **tire marks**, drift **smoke**, nitro **flames**, **screen shake**, wreck flash, and a vignette
+- A detailed **arena** — asphalt texture, red/white racing curbs, corner tire-stack barriers, and glowing Time Attack gates
+- Heat-tinted **tire marks**, drift **smoke**, nitro **flames**, checkpoint **sparks**, **screen shake**, wreck flash, and a vignette
 - Animated **3‑2‑1‑GO** countdown, pause menu with run stats (best combo, longest drift, time)
 - **Mobile ready** — on-screen touch controls appear automatically on touch devices
 
@@ -45,7 +51,11 @@ Break traction, thread the cones, stack a multiplier — then bank it before you
 | `A` `D` / `← →` | Steer | | `P` / `Esc` | Pause |
 | | | | `R` | Reset car |
 
+Pick **Free Drift** or **Time Attack** from the mode toggle on the menu before you start the engine.
+
 > **How to drift:** get up to speed, then tap **Space** while steering into a corner. Hold the slide to grow the multiplier, weave it past the cones for CLOSE bonuses, and ease off to bank the points.
+>
+> **Time Attack:** the next gate to clear glows green. Aim for it, punch through the middle to bank time and points, then chase the next one. A translucent ghost of your best run drives alongside you.
 
 ## How the drift works
 
